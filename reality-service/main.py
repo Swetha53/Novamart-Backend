@@ -1,38 +1,80 @@
 # 1. Libraries import
-from fastapi import FastAPI
-#import matplotlib
-#matplotlib.use('TkAgg')
-#from matplotlib import pyplot as plt
-from pydantic import BaseModel, Field
-from PIL import Image
 import torch
-from transformers import GLPNImageProcessor, GLPNForDepthEstimation
 import requests
 import numpy as np
 import open3d as o3d
 import cv2
-from uuid import UUID
+import os
+from transformers import GLPNImageProcessor, GLPNForDepthEstimation
+from supabase import create_client
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from PIL import Image
+from dotenv import load_dotenv
+load_dotenv()
+
 
 app = FastAPI()
 
-class Assets(BaseModel):
-    asset_id: UUID
-    product_id: str = Field(min_length = 1)
+origins = [
+    "*",  # Allow requests from this origin
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Allows access from specified origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all HTTP methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+url = os.environ.get("SUPABASE_URL")
+key = os.environ.get("SUPABASE_KEY")
+supabase = create_client(url, key)
+
+class Request(BaseModel):
+    product_id: str
+    front_image: str
+    back_image: str
     
 
 # 2. API to return 3D Model
-#@app.get("/reality/{product_id}")
-#def get_model(product_id: str):
-#    return f"You gave me {product_id}"
+@app.get("/reality/{product_id}")
+def get_model(product_id: str):
+    data = supabase.table("Reality").select("*").eq("product_id", product_id).execute()
+    return data
 
-# 3. API to generate and store 3D Model
+# 3. API to delete 3D Model
+@app.delete("/reality/delete/{product_id}")
+def delete_model(product_id: str):
+    storage_path = f"{product_id}.glb"
+    supabase.table("Reality").delete().eq("product_id", product_id).execute()
+    supabase.storage.from_("Products").remove([storage_path])
+
+# 4. API to generate and store 3D Model
 @app.post("/reality/generate")
-def generate_model(front_image: str, back_image: str):
-    generate_mesh(front_image, back_image)
-
-# 4. Function to generate mesh
-def generate_mesh(front_image: str, back_image: str):
+def generate_model(request: Request):
+    generate_mesh(request.product_id, request.front_image, request.back_image)
+    file_path = f"./assets/{request.product_id}.glb"
+    storage_path = f"{request.product_id}.glb"
+    with open(file_path, "rb") as file:
+        resp = supabase.storage.from_("Products").upload(storage_path, file, {"content-type": "model/gltf-binary"})
+        print(resp)
+        
+        resp = supabase.storage.from_("Products").get_public_url(storage_path)
+        print(resp)
     
+        supabase.table("Reality").insert({"product_id": request.product_id, "asset_url": resp}).execute()
+    
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        print(f"Deleted local file: {file_path}")
+    else:
+        print("File not found for deletion.")
+
+# 5. Function to generate mesh
+def generate_mesh(product_id: str, front_image: str, back_image: str):
     # 4.1. Getting Model
     
     feature_extractor = GLPNImageProcessor.from_pretrained("vinvino02/glpn-nyu")
@@ -45,8 +87,8 @@ def generate_mesh(front_image: str, back_image: str):
     front_side = Image.open(requests.get(front_image, stream=True).raw)  
     back_side = Image.open(requests.get(back_image, stream=True).raw)
     
-    #front_side = remove_background(front_side)
-    #back_side = remove_background(back_side)
+    front_side = remove_background(front_side)
+    back_side = remove_background(back_side)
 
     new_height = 480 if front_side.height > 480 else front_side.height
     new_height -= (new_height % 32)
@@ -86,36 +128,27 @@ def generate_mesh(front_image: str, back_image: str):
         
     front_gray = np.array(front_side.convert("L"))
     back_gray = np.array(back_side.convert("L"))
-    front_predicted_depth = front_predicted_depth.squeeze(0)  # Now shape is [height, width]
+    front_predicted_depth = front_predicted_depth.squeeze(0)
     back_predicted_depth = back_predicted_depth.squeeze(0)
 
-    # Set depth to zero where the original image is black
+    # 4.5. Set depth to zero where the original image is black
+    
     front_predicted_depth[front_gray == 0] = 0
     back_predicted_depth[back_gray == 0] = 0
         
-    # 4.5. Post-Processing
+    # 4.6. Post-Processing
         
     pad = 16
     
-    # 4.5.1. Front Side
+    # 4.6.1. Front Side
     front_output = front_predicted_depth.squeeze().cpu().numpy() * 1000.0
     front_output = front_output[pad:-pad, pad:-pad]
     front_side = front_side.crop((pad, pad, front_side.width - pad, front_side.height - pad))
     
-    # 4.5.2. Back Side
+    # 4.6.2. Back Side
     back_output = back_predicted_depth.squeeze().cpu().numpy() * 1000.0
     back_output = back_output[pad:-pad, pad:-pad]
     back_side = back_side.crop((pad, pad, back_side.width - pad, back_side.height - pad))
-    
-    # 4.6. Prediction Visualization
-    
-    #fig, ax = plt.subplots(1, 2)
-    #ax[0].imshow(back_side)
-    #ax[0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    #ax[1].imshow(back_output, cmap="plasma")
-    #ax[1].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    #plt.tight_layout()
-    #plt.pause(5)
     
     # 4.7. Preparing depth image for Open3D
     
@@ -133,7 +166,7 @@ def generate_mesh(front_image: str, back_image: str):
     back_width, back_height = back_side.size
     back_depth_image = (back_output * 255 / np.max(back_output)).astype('uint8')
     back_array = np.array(back_side)
-    
+
     back_depth_o3d = o3d.geometry.Image(back_depth_image)
     back_o3d = o3d.geometry.Image(back_array)
     back_rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
@@ -160,7 +193,6 @@ def generate_mesh(front_image: str, back_image: str):
     # 4.9.2. Back Side
     back_pcd_raw = o3d.geometry.PointCloud.create_from_rgbd_image(
         back_rgbd_image, back_camera_intrinsic)
-    #o3d.visualization.draw_geometries([front_pcd_raw, back_pcd_raw])
     
     # 4.10. Post-Processing the 3D Point Cloud
     
@@ -179,26 +211,32 @@ def generate_mesh(front_image: str, back_image: str):
     # 4.10.2.1. Front Side
     front_pcd.estimate_normals()
     front_pcd.orient_normals_to_align_with_direction()
+    front_pcd.normalize_normals()
     
     # 4.10.2.2. Back Side
     back_pcd.estimate_normals()
     back_pcd.orient_normals_to_align_with_direction()
+    back_pcd.normalize_normals() 
     
     # 4.11. Surface Reconstruction
     
     # 4.11.1. Front Side
     front_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        front_pcd, depth=10, n_threads=1)[0]
+        front_pcd, depth=12, n_threads=1)[0]
+    bbox = back_pcd.get_axis_aligned_bounding_box()
+    front_mesh = front_mesh.crop(bbox)
     front_rotation = front_mesh.get_rotation_matrix_from_xyz((np.pi, 0, 0))
     front_mesh.rotate(front_rotation, center=(0,0,0))
     front_mesh.triangles = o3d.utility.Vector3iVector(
-        np.asarray(front_mesh.triangles)[:, ::-1]  # Reverse triangle vertex order
+        np.asarray(front_mesh.triangles)[:, ::-1]
     )
-    front_mesh.compute_vertex_normals()
+    front_mesh.remove_unreferenced_vertices()
     
     # 4.11.2. Back Side
     back_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        back_pcd, depth=10, n_threads=1)[0]
+        back_pcd, depth=12, n_threads=1)[0]
+    bbox = back_pcd.get_axis_aligned_bounding_box()
+    back_mesh = back_mesh.crop(bbox)
     back_mesh.transform(np.array([[1, 0, 0, 0],
                               [0, 1, 0, 0],
                               [0, 0, -1, 0],
@@ -208,18 +246,21 @@ def generate_mesh(front_image: str, back_image: str):
     bbox = front_mesh.get_axis_aligned_bounding_box()
     size = bbox.get_max_bound() - bbox.get_min_bound()
     depth_extent = size[2]
-    back_mesh.translate((0, 0, -3.8*depth_extent))
-    back_mesh.compute_vertex_normals()
+    back_mesh.translate((0, 0, -4*depth_extent))
+    back_mesh.remove_unreferenced_vertices()
     
     full_mesh = front_mesh + back_mesh
     full_mesh.compute_vertex_normals()
-    
-    if not front_mesh.has_vertex_normals():
-        front_mesh.compute_vertex_normals()
-    front_mesh.normalize_normals()
-    
-    o3d.visualization.draw_geometries([full_mesh], mesh_show_back_face=True)
-    o3d.io.write_triangle_mesh('./assets/object.glb', full_mesh)
+    full_mesh = full_mesh.remove_duplicated_triangles()
+    full_mesh = full_mesh.remove_non_manifold_edges()
+    full_mesh = full_mesh.remove_duplicated_vertices()
+    full_mesh = full_mesh.simplify_quadric_decimation(target_number_of_triangles=200000)
+    # o3d.visualization.draw_geometries([full_mesh])
+    scale_factor = 1000
+
+    full_mesh.scale(scale_factor, center=full_mesh.get_center())
+    MESH_PATH = f"./assets/{product_id}.glb"
+    o3d.io.write_triangle_mesh(MESH_PATH, full_mesh, write_ascii=False, compressed=True)
 
 def remove_background(image):
     image_np = np.array(image)
@@ -244,9 +285,4 @@ def remove_background(image):
 
     # Convert back to PIL
     return Image.fromarray(result)
-    
-generate_model(
-    "https://www.ikea.com/ca/en/images/products/tossberg-malskaer-swivel-chair-grann-light-brown-black__1199989_pe904797_s5.jpg?f=xl",
-    "https://www.ikea.com/ca/en/images/products/tossberg-malskaer-swivel-chair-grann-light-brown-black__1199986_pe904796_s5.jpg?f=xl"
-    )
 

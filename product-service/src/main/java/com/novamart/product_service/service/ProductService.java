@@ -2,6 +2,7 @@ package com.novamart.product_service.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novamart.product_service.client.InventoryClient;
+import com.novamart.product_service.client.RealityClient;
 import com.novamart.product_service.client.UserClient;
 import com.novamart.product_service.dto.*;
 import com.novamart.product_service.model.Product;
@@ -27,6 +28,7 @@ public class ProductService {
     private final ReviewService reviewService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
+    private final RealityClient realityClient;
 
     public ApiResponse createProduct(ProductRequest productRequest) {
         ApiResponse user = userClient.authenticateUser(productRequest.merchantId(), "accountType", "MERCHANT");
@@ -54,6 +56,7 @@ public class ProductService {
         );
 
         inventoryClient.createProductInventory(inventoryRequest);
+        realityClient.generateModel(new RealityModel(product.getProductId(), productRequest.images().get(0), productRequest.images().get(1)));
         productRepository.save(product);
         publishProductUpdate(product);
 

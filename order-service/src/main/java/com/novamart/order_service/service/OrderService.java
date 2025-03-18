@@ -1,5 +1,6 @@
 package com.novamart.order_service.service;
 
+import com.novamart.order_service.client.CartClient;
 import com.novamart.order_service.client.InventoryClient;
 import com.novamart.order_service.client.UserClient;
 import com.novamart.order_service.dto.ApiResponse;
@@ -31,6 +32,7 @@ public class OrderService {
     private final StatusHistoryRepository statusHistoryRepository;
     private final InventoryClient inventoryClient;
     private final UserClient userClient;
+    private final CartClient cartClient;
     private final KafkaTemplate<String, String> kafkaTemplate;
 
     public ApiResponse placeOrder(OrderRequest orderRequest) {

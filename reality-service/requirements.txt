@@ -1,3 +1,13 @@
 fastapi
 pydantic
 uvicorn[standard]
+torch
+requests
+numpy
+open3d
+opencv-python-headless
+transformers
+supabase
+pygltflib
+Pillow
+python-dotenv

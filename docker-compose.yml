@@ -10,6 +10,8 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: password
     volumes:
       - ./data:/data/db
+    networks:
+      - novamart-network
   mysql:
     image: mysql:8.3.0
     container_name: mysql
@@ -20,6 +22,8 @@ services:
     volumes:
       - ./mysql:/var/lib/mysql
       - ./docker/mysql/inti.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - novamart-network
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
     container_name: zookeeper
@@ -28,6 +32,8 @@ services:
     environment:
         ZOOKEEPER_CLIENT_PORT: 2181
         ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - novamart-network
   kafka:
     image: confluentinc/cp-kafka:latest
     container_name: kafka
@@ -45,6 +51,8 @@ services:
     command: >
       bash -c "until nc -z -v -w30 zookeeper 2181; do echo 'Waiting for Zookeeper...'; sleep 5; done; 
       /etc/confluent/docker/run"
+    networks:
+      - novamart-network
   elasticsearch:
     image: elasticsearch:8.8.0
     container_name: elasticsearch
@@ -54,6 +62,21 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
+    networks:
+      - novamart-network
+  reality:
+    build: './reality-service'
+    container_name: reality
+    ports:
+      - "8000:8000"
+    environment:
+      SUPABASE_URL: 'https://reggvbnnkqmprlkojomx.supabase.co'
+      SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlZ2d2Ym5ua3FtcHJsa29qb214Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE3MjE4MTEsImV4cCI6MjA1NzI5NzgxMX0.Su8o1VD0lIwWi_xqXa2M5SOI_FsMenv9_jzoFh9h2wg'
+    volumes:
+      - ./reality-service:/app
+    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - novamart-network
   product:
     build: './product-service'
     container_name: product
@@ -62,9 +85,14 @@ services:
     depends_on:
       - kafka
       - mongodb
+      - inventory
+      - reality
+      - user
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
       SPRING_DATA_MONGODB_URI: 'mongodb://root:password@mongodb:27017/product-service?authSource=admin'
+    networks:
+      - novamart-network
   order:
     build: './order-service'
     container_name: order
@@ -73,11 +101,16 @@ services:
     depends_on:
       - kafka
       - mysql
+      - cart
+      - inventory
+      - user
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
       SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/order_service'
       SPRING_DATASOURCE_USERNAME: 'root'
       SPRING_DATASOURCE_PASSWORD: 'mysql'
+    networks:
+      - novamart-network
   cart:
     build: './cart-service'
     container_name: cart
@@ -86,11 +119,15 @@ services:
     depends_on:
       - kafka
       - mysql
+      - product
+      - user
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
       SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/cart_service'
       SPRING_DATASOURCE_USERNAME: 'root'
       SPRING_DATASOURCE_PASSWORD: 'mysql'
+    networks:
+      - novamart-network
   payment:
     build: './payment-service'
     container_name: payment
@@ -99,11 +136,14 @@ services:
     depends_on:
       - kafka
       - mysql
+      - user
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
       SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/payment_service'
       SPRING_DATASOURCE_USERNAME: 'root'
       SPRING_DATASOURCE_PASSWORD: 'mysql'
+    networks:
+      - novamart-network
   inventory:
     build: './inventory-service'
     container_name: inventory
@@ -117,6 +157,8 @@ services:
       SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/inventory_service'
       SPRING_DATASOURCE_USERNAME: 'root'
       SPRING_DATASOURCE_PASSWORD: 'mysql'
+    networks:
+      - novamart-network
   user:
     build: './user-service'
     container_name: user
@@ -128,6 +170,8 @@ services:
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
       SPRING_DATA_MONGODB_URI: 'mongodb://root:password@mongodb:27017/user-service?authSource=admin'
+    networks:
+      - novamart-network
   search:
     build: './search-service'
     container_name: search
@@ -135,9 +179,12 @@ services:
       - "8086:8096"
     depends_on:
       - kafka
+      - elasticsearch
+      - zookeeper
     environment:
       DEVTIRO_KAFKA_TOPIC: 'product'
       SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
+      SPRING_ELASTICSEARCH_URIS: 'http://elasticsearch:9200'
   notification:
     build: './notification-service'
     container_name: notification
@@ -148,3 +195,8 @@ services:
     environment:
       DEVTIRO_KAFKA_TOPICS: 'order-placed, order-delivered, order-cancelled, payment-completed, refund-initiated, refund-completed, review-added, profile-completed, profile-updated, profile-deleted'
       SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
+    networks:
+      - novamart-network
+networks:
+  novamart-network:
+    driver: bridge

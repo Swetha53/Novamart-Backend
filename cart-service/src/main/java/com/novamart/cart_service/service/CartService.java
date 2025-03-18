@@ -1,5 +1,6 @@
 package com.novamart.cart_service.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novamart.cart_service.client.ProductClient;
 import com.novamart.cart_service.client.UserClient;
 import com.novamart.cart_service.dto.ApiResponse;
@@ -28,9 +29,9 @@ public class CartService {
     private final CartItemRepository cartItemRepository;
     private final ProductClient productClient;
     private final UserClient userClient;
+    private final ObjectMapper objectMapper;
 
     public ApiResponse updateAndSaveCart(CartRequest cartRequest) {
-//        Check product availability
         ApiResponse user = userClient.authenticateUser(cartRequest.userId(), "accountType", "CUSTOMER");
         if (user == null || user.status() != 200) {
             return new ApiResponse(401, "User not authenticated", null);
@@ -47,7 +48,12 @@ public class CartService {
             cart.setCurrencyCode(cartRequest.currencyCode());
         }
         List<CartItem> oldCartItems = cartItemRepository.findByUserId(cart.getUserId());
-        oldCartItems.replaceAll(this::checkProduct);
+        if (oldCartItems != null) {
+            oldCartItems.removeIf(cartItem -> cartItem.getProductId().equals(cartRequest.productId()));
+            oldCartItems.replaceAll(this::checkProduct);
+        } else {
+            oldCartItems = new ArrayList<>();
+        }
 
         CartItem cartItem = new CartItem();
         cartItem.setCartItemId(cartRequest.userId() + cartRequest.productId());
@@ -69,15 +75,15 @@ public class CartService {
     }
 
     private CartItem checkProduct(CartItem cartItem) {
-        List<ProductResponse> productResponse = (List<ProductResponse>) productClient.getProduct(cartItem.getProductId()).body();
-        if (productResponse == null || productResponse.isEmpty()) {
+        ProductResponse productResponse = objectMapper.convertValue(productClient.getProduct(cartItem.getProductId()).body().getFirst(), ProductResponse.class);
+        if (productResponse == null) {
             cartItem.setQuantity(0);
             cartItem.setStatus("DELETED");
-        } else if (cartItem.getQuantity() > productResponse.getFirst().quantityAvailable()) {
+        } else if (cartItem.getQuantity() > productResponse.quantityAvailable()) {
             cartItem.setQuantity(0);
             cartItem.setStatus("OUT_OF_STOCK");
-        } else if (!cartItem.getUnitPrice().equals(productResponse.getFirst().price())) {
-            cartItem.setUnitPrice(productResponse.getFirst().price());
+        } else if (!cartItem.getUnitPrice().equals(productResponse.price())) {
+            cartItem.setUnitPrice(productResponse.price());
             cartItem.setTotalPrice(cartItem.getUnitPrice().multiply(new BigDecimal(cartItem.getQuantity())));
         }
         return cartItem;
@@ -127,7 +133,7 @@ public class CartService {
 
     @Transactional
     public ApiResponse clearCart(String userId) {
-        ApiResponse user = userClient.authenticateUser(userId, "accountType", "MERCHANT");
+        ApiResponse user = userClient.authenticateUser(userId, "accountType", "CUSTOMER");
         if (user == null || user.status() != 200) {
             return new ApiResponse(401, "User not authenticated", null);
         }
