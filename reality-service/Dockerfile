@@ -1,5 +1,8 @@
 # Use official Python image as the base
-FROM python:3.9-slim
+FROM python:3.11
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y libgomp1 libgl1-mesa-glx
 
 # Set the working directory in the container
 WORKDIR /app
@@ -16,4 +19,4 @@ COPY . /app
 EXPOSE 8000
 
 # Command to run the application using Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8443", "--ssl-keyfile", "key_nopass.pem", "--ssl-certfile", "cert.pem"]
