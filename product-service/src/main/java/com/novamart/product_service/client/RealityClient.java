@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
-@FeignClient(name = "reality-service", url = "http://localhost:8000")
+@FeignClient(name = "reality", url = "http://reality:8000")
 public interface RealityClient {
     @RequestMapping(method = RequestMethod.POST, value = "/reality/generate")
     int generateModel(@RequestBody RealityModel realityModel);
