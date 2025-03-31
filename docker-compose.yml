@@ -1,4 +1,4 @@
-version: '4'
+version: "3.8"
 services:
   mongodb:
     image: mongo:7.0.5
@@ -30,8 +30,8 @@ services:
     ports:
       - "2181:2181"
     environment:
-        ZOOKEEPER_CLIENT_PORT: 2181
-        ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     networks:
       - novamart-network
   kafka:
@@ -39,6 +39,7 @@ services:
     container_name: kafka
     ports:
       - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -46,6 +47,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LISTENER_PORT: 29092
     depends_on:
       - zookeeper
     command: >
@@ -54,31 +57,58 @@ services:
     networks:
       - novamart-network
   elasticsearch:
-    image: elasticsearch:8.8.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
     container_name: elasticsearch
     ports:
       - "9200:9200"
       - "9300:9300"
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
-    networks:
-      - novamart-network
-  reality:
-    build: './reality-service'
-    container_name: reality
-    ports:
-      - "8443:8443"
-    environment:
-      SUPABASE_URL: 'https://reggvbnnkqmprlkojomx.supabase.co'
-      SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlZ2d2Ym5ua3FtcHJsa29qb214Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE3MjE4MTEsImV4cCI6MjA1NzI5NzgxMX0.Su8o1VD0lIwWi_xqXa2M5SOI_FsMenv9_jzoFh9h2wg'
+      - cluster.name=elasticsearch
     volumes:
-      - ./reality-service/cert.pem:/app/cert.pem
-      - ./reality-service/key.pem:/app/key.pem
+      - ./es/data:/usr/share/elasticsearch/data:rw
+      - ./es/logs:/usr/share/elasticsearch/logs:rw
     networks:
       - novamart-network
+    deploy:
+        resources:
+            limits:
+              cpus: 2
+              memory: 2g
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9200" ]
+      interval: 10s
+      retries: 5
+      start_period: 240s
+      timeout: 10s
+#  reality:
+#    build: "./reality-service"
+#    ulimits:
+#      memlock: -1
+#      nofile: 65536
+#    deploy:
+#      resources:
+#        limits:
+#          cpus: 2
+#          memory: 6g
+#    container_name: reality
+#    ports:
+#      - "8443:8443"
+#    depends_on:
+#      - product
+#      - kafka
+#    environment:
+#      SUPABASE_URL: "https://reggvbnnkqmprlkojomx.supabase.co"
+#      SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlZ2d2Ym5ua3FtcHJsa29qb214Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE3MjE4MTEsImV4cCI6MjA1NzI5NzgxMX0.Su8o1VD0lIwWi_xqXa2M5SOI_FsMenv9_jzoFh9h2wg"
+#      KAFKA_BROKER: "kafka:29092"
+#      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+#      KAFKA_GROUP_ID: "reality"
+#      KAFKA_TOPIC: "reality"
+#      DEVTIRO_KAFKA_TOPICS: "reality"
+#    networks:
+#      - novamart-network
   product:
-    build: './product-service'
+    build: "./product-service"
     container_name: product
     ports:
       - "8080:8443"
@@ -86,18 +116,17 @@ services:
       - kafka
       - mongodb
       - inventory
-      - reality
       - user
     volumes:
       - ./product-service/keystore.p12:/app/keystore.p12
     environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_DATA_MONGODB_URI: 'mongodb://root:password@mongodb:27017/product-service?authSource=admin'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_DATA_MONGODB_URI: "mongodb://root:password@mongodb:27017/product-service?authSource=admin"
+      SPRING_PROFILES_ACTIVE: "prod"
     networks:
       - novamart-network
   order:
-    build: './order-service'
+    build: "./order-service"
     container_name: order
     ports:
       - "8081:8443"
@@ -110,15 +139,15 @@ services:
     volumes:
       - ./order-service/keystore.p12:/app/keystore.p12
     environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/order_service'
-      SPRING_DATASOURCE_USERNAME: 'root'
-      SPRING_DATASOURCE_PASSWORD: 'mysql'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/order_service"
+      SPRING_DATASOURCE_USERNAME: "root"
+      SPRING_DATASOURCE_PASSWORD: "mysql"
+      SPRING_PROFILES_ACTIVE: "prod"
     networks:
       - novamart-network
   cart:
-    build: './cart-service'
+    build: "./cart-service"
     container_name: cart
     ports:
       - "8082:8443"
@@ -130,15 +159,15 @@ services:
     volumes:
       - ./cart-service/keystore.p12:/app/keystore.p12
     environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/cart_service'
-      SPRING_DATASOURCE_USERNAME: 'root'
-      SPRING_DATASOURCE_PASSWORD: 'mysql'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/cart_service"
+      SPRING_DATASOURCE_USERNAME: "root"
+      SPRING_DATASOURCE_PASSWORD: "mysql"
+      SPRING_PROFILES_ACTIVE: "prod"
     networks:
       - novamart-network
   payment:
-    build: './payment-service'
+    build: "./payment-service"
     container_name: payment
     ports:
       - "8083:8443"
@@ -149,15 +178,15 @@ services:
     volumes:
       - ./payment-service/keystore.p12:/app/keystore.p12
     environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/payment_service'
-      SPRING_DATASOURCE_USERNAME: 'root'
-      SPRING_DATASOURCE_PASSWORD: 'mysql'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/payment_service"
+      SPRING_DATASOURCE_USERNAME: "root"
+      SPRING_DATASOURCE_PASSWORD: "mysql"
+      SPRING_PROFILES_ACTIVE: "prod"
     networks:
       - novamart-network
   inventory:
-    build: './inventory-service'
+    build: "./inventory-service"
     container_name: inventory
     ports:
       - "8084:8443"
@@ -167,15 +196,15 @@ services:
     volumes:
       - ./inventory-service/keystore.p12:/app/keystore.p12
     environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_DATASOURCE_URL: 'jdbc:mysql://mysql:3306/inventory_service'
-      SPRING_DATASOURCE_USERNAME: 'root'
-      SPRING_DATASOURCE_PASSWORD: 'mysql'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/inventory_service"
+      SPRING_DATASOURCE_USERNAME: "root"
+      SPRING_DATASOURCE_PASSWORD: "mysql"
+      SPRING_PROFILES_ACTIVE: "prod"
     networks:
       - novamart-network
   user:
-    build: './user-service'
+    build: "./user-service"
     container_name: user
     ports:
       - "8085:8443"
@@ -185,29 +214,40 @@ services:
     volumes:
       - ./user-service/keystore.p12:/app/keystore.p12
     environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_DATA_MONGODB_URI: 'mongodb://root:password@mongodb:27017/user-service?authSource=admin'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_DATA_MONGODB_URI: "mongodb://root:password@mongodb:27017/user-service?authSource=admin"
+      SPRING_PROFILES_ACTIVE: "prod"
     networks:
       - novamart-network
   search:
-    build: './search-service'
+    build: "./search-service"
     container_name: search
     ports:
       - "8086:8443"
     depends_on:
-      - kafka
-      - elasticsearch
-      - zookeeper
+      elasticsearch:
+        condition: service_healthy
     volumes:
       - ./search-service/keystore.p12:/app/keystore.p12
     environment:
-      DEVTIRO_KAFKA_TOPIC: 'product'
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_ELASTICSEARCH_URIS: 'http://elasticsearch:9200'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      DEVTIRO_KAFKA_TOPIC: "product"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_BROKER: "kafka:29092"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_PROFILES_ACTIVE: "prod"
+      SPRING_ELASTICSEARCH_URL: "http://elasticsearch:9200"
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+    networks:
+      - novamart-network
+    command: ["sh", "-c", "sleep 360 && java -jar app.jar"]
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://elasticsearch:9200" ]
+      interval: 10s
+      retries: 10
+      start_period: 400s
+      timeout: 15s
   notification:
-    build: './notification-service'
+    build: "./notification-service"
     container_name: notification
     ports:
       - "8087:8443"
@@ -216,9 +256,9 @@ services:
     volumes:
       - ./notification-service/keystore.p12:/app/keystore.p12
     environment:
-      DEVTIRO_KAFKA_TOPICS: 'order-placed, order-delivered, order-cancelled, payment-completed, refund-initiated, refund-completed, review-added, profile-completed, profile-updated, profile-deleted'
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: 'kafka:29092'
-      SPRING_PROFILES_ACTIVE: 'prod'
+      DEVTIRO_KAFKA_TOPICS: "order-placed, order-delivered, order-cancelled, payment-completed, refund-initiated, refund-completed, review-added, profile-completed, profile-updated, profile-deleted"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      SPRING_PROFILES_ACTIVE: "prod"
     networks:
       - novamart-network
 networks:

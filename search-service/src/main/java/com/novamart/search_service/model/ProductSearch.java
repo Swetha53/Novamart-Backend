@@ -12,12 +12,11 @@ import org.springframework.data.elasticsearch.annotations.FieldType;
 import java.math.BigDecimal;
 import java.util.List;
 
-@Document(indexName = "product")
+@Document(indexName = "products")
 @AllArgsConstructor
 @NoArgsConstructor
-@Builder
 @Data
-public class Product {
+public class ProductSearch {
     @Id
     private String productId;
     @Field(type= FieldType.Text)

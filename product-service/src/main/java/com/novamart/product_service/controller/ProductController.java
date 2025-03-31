@@ -40,6 +40,12 @@ public class ProductController {
         }
     }
 
+    @GetMapping("/search")
+    @ResponseStatus(HttpStatus.OK)
+    public ApiResponse searchProducts(@RequestParam String name) {
+        return productService.searchProducts(name);
+    }
+
     @DeleteMapping("/clear")
     public ApiResponse clearAllProducts(@RequestParam String userId) {
         return productService.clearAllProducts(userId);

@@ -1,6 +1,8 @@
 # Use an official Java runtime as a parent image
 FROM openjdk:21-jdk-slim
 
+RUN apt-get update && apt-get install -y curl
+
 # Set the working directory
 WORKDIR /app
 

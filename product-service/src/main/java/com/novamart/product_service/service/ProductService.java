@@ -2,7 +2,6 @@ package com.novamart.product_service.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novamart.product_service.client.InventoryClient;
-import com.novamart.product_service.client.RealityClient;
 import com.novamart.product_service.client.UserClient;
 import com.novamart.product_service.dto.*;
 import com.novamart.product_service.model.Product;
@@ -28,7 +27,6 @@ public class ProductService {
     private final ReviewService reviewService;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
-    private final RealityClient realityClient;
 
     public ApiResponse createProduct(ProductRequest productRequest) {
         ApiResponse user = userClient.authenticateUser(productRequest.merchantId(), "accountType", "MERCHANT");
@@ -56,10 +54,9 @@ public class ProductService {
         );
 
         inventoryClient.createProductInventory(inventoryRequest);
-        realityClient.generateModel(new RealityModel(product.getProductId(), productRequest.images().get(0), productRequest.images().get(1)));
         productRepository.save(product);
-        publishProductUpdate(product);
-
+        publishProductUpdate("product", product);
+        publishProductUpdate("reality", product);
         return new ApiResponse(200, "Product created successfully", null);
     }
 
@@ -156,9 +153,43 @@ public class ProductService {
         return new ApiResponse(200, "All products deleted", null);
     }
 
-    public void publishProductUpdate(Product product) {
+    public ApiResponse searchProducts(String name) {
+        List<ProductResponse> productList = new ArrayList<>();
+        for (Product product : productRepository.findByProductName(name)) {
+            if (product.getName().toLowerCase().contains(name.toLowerCase())) {
+                InventoryResponse inventoryResponse = objectMapper.convertValue(inventoryClient.getInventoryByProductId(product.getProductId()).body().getFirst(), InventoryResponse.class);
+                List<Reviews> reviews = (List<Reviews>) reviewService.getReviewByProductId(product.getProductId()).body();
+                ProductResponse productResponse = new ProductResponse(
+                        product.getProductId(),
+                        product.getMerchantId(),
+                        product.getName(),
+                        product.getImages(),
+                        product.getDescription(),
+                        product.getPrice(),
+                        product.getCurrencyCode(),
+                        product.getCategories(),
+                        reviews,
+                        product.getCreatedAt(),
+                        product.getUpdatedAt(),
+                        product.getStatus(),
+                        product.getAttributes(),
+                        inventoryResponse.quantityAvailable(),
+                        inventoryResponse.quantitySold(),
+                        inventoryResponse.quantityReserved()
+                );
+                productList.add(productResponse);
+            }
+        }
+        if (productList.isEmpty()) {
+            return new ApiResponse(404, "No products found", null);
+        }
+        return new ApiResponse(200, "Products found", productList);
+    }
+
+    public void publishProductUpdate(String topic, Product product) {
+        log.info("Publishing product update to {}", topic);
         try {
-            kafkaTemplate.send("product", objectMapper.writeValueAsString(product));
+            kafkaTemplate.send(topic, objectMapper.writeValueAsString(product));
         } catch (Exception e) {
             log.error("Error publishing product: {}", e.getMessage());
         }
