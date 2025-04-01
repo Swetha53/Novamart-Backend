@@ -50,6 +50,7 @@ public class UserService {
     }
 
     public ApiResponse loginUser(LoginRequest loginRequest) {
+        log.info("Login request: {}", loginRequest);
         User user = userRepository.findByEmail(loginRequest.email());
         if (user == null) {
             return new ApiResponse(404, "User not found", null);
