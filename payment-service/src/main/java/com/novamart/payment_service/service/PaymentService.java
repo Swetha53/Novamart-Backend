@@ -56,12 +56,11 @@ public class PaymentService {
         if (user == null || user.status() != 200) {
             return new ApiResponse(401, "User not authenticated", null);
         }
-        Payment payment = paymentRepository.findByOrderId(orderId);
-        if (payment==null) {
+        List<Payment> payment = paymentRepository.findByOrderId(orderId);
+        if (payment==null || payment.isEmpty()) {
             return new ApiResponse(404, "Payment not found", null);
         }
-        List<Payment> paymentList = Collections.singletonList(payment);
-        return new ApiResponse(200, "Success", paymentList);
+        return new ApiResponse(200, "Success", payment);
     }
 
     @Transactional

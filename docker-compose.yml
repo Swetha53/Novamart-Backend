@@ -81,32 +81,32 @@ services:
       retries: 5
       start_period: 240s
       timeout: 10s
-#  reality:
-#    build: "./reality-service"
-#    ulimits:
-#      memlock: -1
-#      nofile: 65536
-#    deploy:
-#      resources:
-#        limits:
-#          cpus: 2
-#          memory: 6g
-#    container_name: reality
-#    ports:
-#      - "8443:8443"
-#    depends_on:
-#      - product
-#      - kafka
-#    environment:
-#      SUPABASE_URL: "https://reggvbnnkqmprlkojomx.supabase.co"
-#      SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlZ2d2Ym5ua3FtcHJsa29qb214Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE3MjE4MTEsImV4cCI6MjA1NzI5NzgxMX0.Su8o1VD0lIwWi_xqXa2M5SOI_FsMenv9_jzoFh9h2wg"
-#      KAFKA_BROKER: "kafka:29092"
-#      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
-#      KAFKA_GROUP_ID: "reality"
-#      KAFKA_TOPIC: "reality"
-#      DEVTIRO_KAFKA_TOPICS: "reality"
-#    networks:
-#      - novamart-network
+  reality:
+    build: "./reality-service"
+    ulimits:
+      memlock: -1
+      nofile: 65536
+    deploy:
+      resources:
+        limits:
+          cpus: 2
+          memory: 6g
+    container_name: reality
+    ports:
+      - "8443:8443"
+    depends_on:
+      - product
+      - kafka
+    environment:
+      SUPABASE_URL: "https://reggvbnnkqmprlkojomx.supabase.co"
+      SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlZ2d2Ym5ua3FtcHJsa29qb214Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE3MjE4MTEsImV4cCI6MjA1NzI5NzgxMX0.Su8o1VD0lIwWi_xqXa2M5SOI_FsMenv9_jzoFh9h2wg"
+      KAFKA_BROKER: "kafka:29092"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_GROUP_ID: "reality"
+      KAFKA_TOPIC: "reality"
+      DEVTIRO_KAFKA_TOPICS: "reality"
+    networks:
+      - novamart-network
   product:
     build: "./product-service"
     container_name: product
