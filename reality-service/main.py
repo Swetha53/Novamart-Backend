@@ -20,6 +20,8 @@ import pycolmap
 from matplotlib import pyplot as plt
 import time
 import bpy
+import math
+import shutil
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -63,11 +65,13 @@ async def initialize():
     logger.info("Initializing kafka consumer...")
     loop = asyncio.get_event_loop()
     global consumer
-    consumer = AIOKafkaConsumer("reality",
-                                loop=loop,
-                                bootstrap_servers='localhost:9092',
-                                group_id="reality",
-                                value_deserializer=lambda m: json.loads(m.decode('utf-8')))
+    consumer = AIOKafkaConsumer(
+            "reality",
+            loop=loop,
+            bootstrap_servers='localhost:9092',
+            group_id="reality",
+            value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+        )
     await consumer.start()
 
 async def consume():
@@ -96,7 +100,6 @@ async def generate_model(product):
         if (len(images) > 2 and ENABLE_ADVANCED_MESH_GENERATION):
             advanced_generate_mesh(product_id, images)
         else:
-            # await generate_mesh(product_id, images[0], images[1])
             generate_mesh(product_id, images[0], images[1])
             
     except Exception as e:
@@ -209,36 +212,51 @@ def advanced_generate_mesh(product_id: str, images):
     logger.info("DONE: Texture Mesh")
     
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.obj(filepath=f"{DENSE_MODEL_PATH}/model.obj")
-    bpy.ops.export_scene.gltf(filepath=f"{DENSE_MODEL_PATH}/model.glb", export_format='GLB')
+    bpy.ops.wm.obj_import(filepath=f"{DENSE_MODEL_PATH}/model.obj")
     
-    # logger.info("Deleting images from local...")
-    # for index, image in enumerate(images):
-    #     image_path = f"./assets/{index}.jpg"
-    #     if os.path.exists(image_path):
-    #         os.remove(image_path)
-    # logger.info("Deleted images from local")
+    imported_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+    for obj in imported_objects:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        obj.rotation_euler[0] = -math.pi / 2
+        bpy.ops.object.transform_apply(rotation=True)
+    
+    bpy.ops.export_scene.gltf(
+            filepath=f"{DENSE_MODEL_PATH}/{product_id}.glb",
+            export_format='GLB'
+        )
+    
+    generate_record(product_id, f"{DENSE_MODEL_PATH}/{product_id}.glb", True)
 
 def generate_mesh(product_id: str, front_image: str, back_image: str):
     logger.info("Getting model")
     logger.info("Loading feature...")
-    feature_extractor = GLPNImageProcessor.from_pretrained("vinvino02/glpn-nyu")
+    feature_extractor = GLPNImageProcessor.from_pretrained(
+            "vinvino02/glpn-nyu"
+        )
     logger.info("Feature loaded")
     
     logger.info("Loading model...")
     model = GLPNForDepthEstimation.from_pretrained("vinvino02/glpn-nyu")
     logger.info("Model loaded")
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    # device = "mps"
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
     logger.info(f"Setting model for Device: ${device}")
     model.to(device)
     logger.info("Model converted")
     logger.info("Generate mesh started")
     logger.info("Loading images...")
     try:
-        front_side = Image.open(requests.get(front_image, stream=True, timeout=10).raw)
-        back_side = Image.open(requests.get(back_image, stream=True, timeout=10).raw)
+        front_side = Image.open(
+                requests.get(front_image, stream=True, timeout=10).raw
+            )
+        back_side = Image.open(
+                requests.get(back_image, stream=True, timeout=10).raw
+            )
     except requests.exceptions.RequestException as e:
         logger.info(f"Image download failed: {e}")
         return
@@ -268,10 +286,16 @@ def generate_mesh(product_id: str, front_image: str, back_image: str):
     
     logger.info("Preparing images for the model...")
     # 4.3.1. Front Side
-    front_inputs = feature_extractor(images=front_side, return_tensors="pt").to(device)
+    front_inputs = feature_extractor(
+            images=front_side,
+            return_tensors="pt"
+        ).to(device)
     
     # 4.3.2. Back Side
-    back_inputs = feature_extractor(images=back_side, return_tensors="pt").to(device)
+    back_inputs = feature_extractor(
+            images=back_side,
+            return_tensors="pt"
+        ).to(device)
     logger.info("Images prepared for the model")
 
     logger.info("Getting prediction from the model...")
@@ -302,30 +326,60 @@ def generate_mesh(product_id: str, front_image: str, back_image: str):
     # 4.6.1. Front Side
     front_output = front_predicted_depth.squeeze().cpu().numpy() * 1000.0
     front_output = front_output[pad:-pad, pad:-pad]
-    front_side = front_side.crop((pad, pad, front_side.width - pad, front_side.height - pad))
+    front_side = front_side.crop((
+            pad,
+            pad,
+            front_side.width - pad,
+            front_side.height - pad
+        ))
     
     # 4.6.2. Back Side
     back_output = back_predicted_depth.squeeze().cpu().numpy() * 1000.0
     back_output = back_output[pad:-pad, pad:-pad]
-    back_side = back_side.crop((pad, pad, back_side.width - pad, back_side.height - pad))
+    back_side = back_side.crop((
+            pad,
+            pad,
+            back_side.width - pad,
+            back_side.height - pad
+        ))
     logger.info("Post processing completed")
     
     # logger.info("Visualizing the predictions...")
     # Front Side
     # fig, ax = plt.subplots(1, 2)
     # ax[0].imshow(front_side)
-    # ax[0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    # ax[0].tick_params(
+    #         left=False, 
+    #         bottom=False, 
+    #         labelleft=False, 
+    #         labelbottom=False
+    #     )
     # ax[1].imshow(front_output, cmap="plasma")
-    # ax[1].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    # ax[1].tick_params(
+    #         left=False, 
+    #         bottom=False, 
+    #         labelleft=False, 
+    #         labelbottom=False
+    #     )
     # plt.tight_layout()
     # plt.pause(5)
     
     # Back Side
     # fig, ax = plt.subplots(1, 2)
     # ax[0].imshow(back_side)
-    # ax[0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    # ax[0].tick_params(
+    #         left=False, 
+    #         bottom=False, 
+    #         labelleft=False, 
+    #         labelbottom=False
+    #     )
     # ax[1].imshow(back_output, cmap="plasma")
-    # ax[1].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    # ax[1].tick_params(
+    #         left=False, 
+    #         bottom=False, 
+    #         labelleft=False, 
+    #         labelbottom=False
+    #     )
     # plt.tight_layout()
     # plt.pause(5)
     # logger.info("Done visualizing the predictions")
@@ -333,65 +387,97 @@ def generate_mesh(product_id: str, front_image: str, back_image: str):
     logger.info("Preparing depth images for Open3D")
     # 4.7.1. Front Side
     front_width, front_height = front_side.size
-    front_depth_image = (front_output * 255 / np.max(front_output)).astype('uint8')
+    front_depth_image = (
+            front_output * 255 / np.max(front_output)
+        ).astype('uint8')
     front_array = np.array(front_side)
     
     front_depth_o3d = o3d.geometry.Image(front_depth_image)
     front_o3d = o3d.geometry.Image(front_array)
     front_rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
-        front_o3d, front_depth_o3d, convert_rgb_to_intensity=False)
+            front_o3d,
+            front_depth_o3d,
+            convert_rgb_to_intensity=False
+        )
     
     # 4.7.2. Back Side
     back_width, back_height = back_side.size
-    back_depth_image = (back_output * 255 / np.max(back_output)).astype('uint8')
+    back_depth_image = (
+            back_output * 255 / np.max(back_output)
+        ).astype('uint8')
     back_array = np.array(back_side)
 
     back_depth_o3d = o3d.geometry.Image(back_depth_image)
     back_o3d = o3d.geometry.Image(back_array)
     back_rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
-        back_o3d, back_depth_o3d, convert_rgb_to_intensity=False)
+            back_o3d,
+            back_depth_o3d,
+            convert_rgb_to_intensity=False
+        )
     logger.info("Depth images prepared for Open3D")
     
     logger.info("Creating camera for the images...")
-    logger.info(f"Front Intrinsics: width={front_width}, height={front_height}")
+    logger.info(
+            f"Front Intrinsics: width={front_width}, height={front_height}"
+        )
     logger.info(f"Back Intrinsics: width={back_width}, height={back_height}")
     # 4.8.1. Front Side
     front_camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
     front_camera_intrinsic.set_intrinsics(
-        front_width, front_height, 500, 500, front_width/2, front_height/2)
+            front_width,
+            front_height,
+            500,
+            500,
+            front_width/2,
+            front_height/2
+        )
     
     # 4.8.2. Back Side
     back_camera_intrinsic = o3d.camera.PinholeCameraIntrinsic()
     back_camera_intrinsic.set_intrinsics(
-        back_width, back_height, 500, 500, back_width/2, back_height/2)
+            back_width, 
+            back_height, 
+            500, 
+            500, 
+            back_width/2, 
+            back_height/2
+        )
     logger.info("Camera created for the images")
     
     logger.info("Creating Open3D Point Cloud...")
-    generate_point_cloud(product_id, front_rgbd_image, front_camera_intrinsic, back_rgbd_image, back_camera_intrinsic)
+    generate_point_cloud(
+            product_id,
+            front_rgbd_image, 
+            front_camera_intrinsic, 
+            back_rgbd_image, 
+            back_camera_intrinsic
+        )
 
 def remove_background(image):
     logger.info("Remove background started")
     image_np = np.array(image)
-
-    # Create a mask
+    
     mask = np.zeros(image_np.shape[:2], np.uint8)
-
-    # Define background/foreground models
+    
     bgd_model = np.zeros((1, 65), np.float64)
     fgd_model = np.zeros((1, 65), np.float64)
-
-    # Define a rectangle around the object
+    
     height, width = image_np.shape[:2]
     rect = (10, 10, width - 20, height - 20)
-
-    # Apply GrabCut
-    cv2.grabCut(image_np, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
-
-    # Set all background pixels to black
+    
+    cv2.grabCut(
+            image_np,
+            mask, 
+            rect, 
+            bgd_model, 
+            fgd_model, 
+            5, 
+            cv2.GC_INIT_WITH_RECT
+        )
+    
     mask_2 = np.where((mask == 2) | (mask == 0), 0, 1).astype("uint8")
     result = image_np * mask_2[:, :, np.newaxis]
-
-    # Convert back to PIL
+    
     return Image.fromarray(result)
 
 def generate_point_cloud(product_id, front_rgbd_image, front_camera_intrinsic, back_rgbd_image, back_camera_intrinsic):
@@ -417,12 +503,16 @@ def generate_point_cloud(product_id, front_rgbd_image, front_camera_intrinsic, b
     logger.info("Removing outliers...")
     # 4.10.1.1. Front Side
     _, ind = front_pcd_raw.remove_statistical_outlier(
-        nb_neighbors=20, std_ratio=6.0)
+            nb_neighbors=20, 
+            std_ratio=6.0
+        )
     front_pcd = front_pcd_raw.select_by_index(ind)
 
     # 4.10.1.2. Back Side
     _, ind = back_pcd_raw.remove_statistical_outlier(
-        nb_neighbors=20, std_ratio=6.0)
+            nb_neighbors=20, 
+            std_ratio=6.0
+        )
     back_pcd = back_pcd_raw.select_by_index(ind)
     logger.info("Outliers removed")
 
@@ -445,7 +535,10 @@ def generate_point_cloud(product_id, front_rgbd_image, front_camera_intrinsic, b
     logger.info("Surface reconstructing...")
     # 4.11.1. Front Side
     front_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        front_pcd, depth=12, n_threads=1)[0]
+            front_pcd, 
+            depth=12, 
+            n_threads=1
+        )[0]
     bbox = back_pcd.get_axis_aligned_bounding_box()
     front_mesh = front_mesh.crop(bbox)
     front_rotation = front_mesh.get_rotation_matrix_from_xyz((np.pi, 0, 0))
@@ -457,7 +550,10 @@ def generate_point_cloud(product_id, front_rgbd_image, front_camera_intrinsic, b
 
     # 4.11.2. Back Side
     back_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        back_pcd, depth=12, n_threads=1)[0]
+            back_pcd, 
+            depth=12, 
+            n_threads=1
+        )[0]
     bbox = back_pcd.get_axis_aligned_bounding_box()
     back_mesh = back_mesh.crop(bbox)
     back_mesh.transform(np.array([[1, 0, 0, 0],
@@ -480,34 +576,46 @@ def generate_point_cloud(product_id, front_rgbd_image, front_camera_intrinsic, b
     full_mesh = full_mesh.remove_duplicated_triangles()
     full_mesh = full_mesh.remove_non_manifold_edges()
     full_mesh = full_mesh.remove_duplicated_vertices()
-    full_mesh = full_mesh.simplify_quadric_decimation(target_number_of_triangles=200000)
+    full_mesh = full_mesh.simplify_quadric_decimation(
+            target_number_of_triangles=200000
+        )
     scale_factor = 1000
 
     full_mesh.scale(scale_factor, center=full_mesh.get_center())
     logger.info("Meshes merged")
     logger.info("Saving mesh in local...")
     MESH_PATH = f"./assets/{product_id}.glb"
-    o3d.io.write_triangle_mesh(MESH_PATH, full_mesh, write_ascii=False, compressed=True)
+    o3d.io.write_triangle_mesh(
+            MESH_PATH, 
+            full_mesh, 
+            write_ascii=False, 
+            compressed=True
+        )
     # o3d.visualization.draw_geometries([full_mesh], mesh_show_back_face=True)
     logger.info("Mesh saved in local")
 
     logger.info("Mesh generation completed")
 
-    generate_record(product_id)
+    generate_record(product_id, f"./assets/{product_id}.glb")
 
-def generate_record(product_id):
+def generate_record(product_id, file_path, advanced=False):
     global start_time
-    file_path = f"./assets/{product_id}.glb"
     storage_path = f"{product_id}.glb"
     with open(file_path, "rb") as file:
         logger.info("Saving 3D model in database...")
-        resp = supabase.storage.from_("Products").upload(storage_path, file, {"content-type": "model/gltf-binary"})
+        resp = supabase.storage.from_("Products").upload(
+                storage_path, 
+                file, 
+                {"content-type": "model/gltf-binary"}
+            )
         logger.info(resp)
 
         resp = supabase.storage.from_("Products").get_public_url(storage_path)
         logger.info(resp)
 
-        supabase.table("Reality").insert({"product_id": product_id, "asset_url": resp}).execute()
+        supabase.table("Reality").insert(
+                {"product_id": product_id, "asset_url": resp}
+            ).execute()
         logger.info("3D model saved in database")
         
         logger.info("Deleting 3D model from local...")
@@ -516,13 +624,50 @@ def generate_record(product_id):
             logger.info(f"Deleted local 3D model: {file_path}")
         else:
             logger.info("File not found for deletion.")
+        
+        if advanced:
+            logger.info("Deleting sparse model from local...")
+            if os.path.exists("./assets/sparse_model") and os.path.isdir("./assets/sparse_model"):
+                shutil.rmtree("./assets/sparse_model")
+                logger.info(
+                        "Deleted Sparse Model Directory: ./assets/sparse_model"
+                    )
+            else:
+                logger.info("File not found for deletion.")
+            
+            logger.info("Deleting dense model from local...")
+            if os.path.exists("./assets/dense_model") and os.path.isdir("./assets/dense_model"):
+                shutil.rmtree("./assets/dense_model")
+                logger.info(
+                        "Deleted Dense Model Directory: ./assets/dense_model"
+                    )
+            else:
+                logger.info("File not found for deletion.")
+            
+            logger.info("Deleting database from local...")
+            if os.path.exists("./assets/database.db"):
+                os.remove("./assets/database.db")
+                logger.info("Deleted Database: ./assets/database.db")
+            else:
+                logger.info("File not found for deletion.")
+                
+            logger.info("Deleting product images from local...")
+            if os.path.exists("./assets/images") and os.path.isdir("./assets/dense_model"):
+                shutil.rmtree("./assets/images")
+                logger.info("Deleted Images: ./assets/images")
+            else:
+                logger.info("File not found for deletion.")
+        
     logger.info("Async 3D model generation ended successfully")
     logger.info(time.time() - start_time)
 
 # 2. API to return 3D Model
 @app.get("/reality/{product_id}")
 def get_model(product_id: str):
-    data = supabase.table("Reality").select("*").eq("product_id", product_id).execute()
+    data = supabase.table("Reality").select("*").eq(
+            "product_id", 
+            product_id
+        ).execute()
     return data
 
 # 3. API to delete 3D Model

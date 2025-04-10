@@ -86,6 +86,8 @@ public class OrderService {
             orderItemRepository.saveAll(orderItemList);
             statusHistoryRepository.save(statusHistory);
 
+            log.info(cartClient.clearCart(orderRequest.userId()).toString());
+
             publishKafkaEvent(orderRequest.userEmail(), "order-placed");
 
             return new ApiResponse(200, "Order Placed Successfully", null);

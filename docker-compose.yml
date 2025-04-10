@@ -65,6 +65,9 @@ services:
     environment:
       - discovery.type=single-node
       - cluster.name=elasticsearch
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
     volumes:
       - ./es/data:/usr/share/elasticsearch/data:rw
       - ./es/logs:/usr/share/elasticsearch/logs:rw
@@ -76,7 +79,7 @@ services:
               cpus: 2
               memory: 2g
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9200" ]
+      test: [ "CMD", "curl", "-f", "localhost:9200" ]
       interval: 10s
       retries: 5
       start_period: 240s
@@ -237,11 +240,12 @@ services:
       SPRING_PROFILES_ACTIVE: "prod"
       SPRING_ELASTICSEARCH_URL: "http://elasticsearch:9200"
       ELASTICSEARCH_URL: "http://elasticsearch:9200"
+      xpack_security_enabled: "false"
+      xpack_security_http_ssl_enabled: "false"
     networks:
       - novamart-network
-    command: ["sh", "-c", "sleep 360 && java -jar app.jar"]
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://elasticsearch:9200" ]
+      test: [ "CMD", "curl", "-f", "elasticsearch:9200" ]
       interval: 10s
       retries: 10
       start_period: 400s
