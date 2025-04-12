@@ -226,7 +226,7 @@ def advanced_generate_mesh(product_id: str, images):
             export_format='GLB'
         )
     
-    generate_record(product_id, f"{DENSE_MODEL_PATH}/{product_id}.glb", True)
+    generate_record(product_id, f"{DENSE_MODEL_PATH}/{product_id}.glb")
 
 def generate_mesh(product_id: str, front_image: str, back_image: str):
     logger.info("Getting model")
