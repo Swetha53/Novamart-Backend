@@ -60,12 +60,13 @@ openssl pkcs12 -export -in server.crt -inkey server.key -out keystore.p12 -name 
 ### 1. Docker Deployment
 The certificate is self-signed so that deployed web can hit secure api.
 1. Check the IP v4 address of your system if it is 10.200.67.24 (University of Ottawa's) IP address then it should work as it is with no change to certificate else follow the below process to setup a new certificate for the microservice.
-2. Do mvn clean install for all the services so that a target folder is built for each microservice.
-3. Run the following command in the terminal of Novamart-backend
+2. Add your gmail email ID and application password in application.properties in Notification-Service to test Email Notifications.
+3. Do mvn clean install for all the services so that a target folder is built for each microservice.
+4. Run the following command in the terminal of Novamart-backend
 ```
 docker-compose up --build -d
 ```
-4. Wait few minutes for all the services to be up and running.
+5. Wait few minutes for all the services to be up and running.
 
 ### 2. Reality Service Deployment
 1. Create a virtual environment (e.g. py311) and set python as 3.11.11 in the environment. You can use Anaconda Navigator to create a virtual environment with a specific python version.

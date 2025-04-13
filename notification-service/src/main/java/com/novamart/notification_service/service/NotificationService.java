@@ -1,5 +1,6 @@
 package com.novamart.notification_service.service;
 
+import com.novamart.notification_service.EmailKeyProvider;
 import com.novamart.notification_service.dto.EmailInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +68,7 @@ public class NotificationService {
                     "Thank you for taking off your precious time to write the review."
             )
     );
+    private final EmailKeyProvider emailKeyProvider;
 
     @KafkaListener(topics = "order-placed", groupId = "order")
     public void sendOrderPlacedEmail(String userEmail) {
@@ -121,7 +123,7 @@ public class NotificationService {
     public SimpleMailMessage setEmailMessage(String userEmail, String emailType) {
         EmailInfo emailDetails = emailInfo.get(emailType);
         SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom("swethanarayan25@gmail.com");
+        message.setFrom(emailKeyProvider.getEmailKey());
         message.setTo(userEmail);
         message.setSubject(emailDetails.subject());
         message.setText(emailDetails.body());
